@@ -18,8 +18,9 @@ function RunCommands {
     $p = New-Object System.Diagnostics.Process
     $p.StartInfo = $pinfo
     $p.Start() | Out-Null
-    $stdout = $p.StandardOutput.ReadToEnd()
     $p.WaitForExit()
+
+    $stdout = $p.StandardOutput.ReadToEnd()
     Write-Host "$stdout"
 }
 
@@ -52,9 +53,8 @@ function Write-Header {
 ##------------------
 $vms = 'evcc', 'influx', 'dyndns', 'traefik', 'grafana', 'keycloak', "oauth2-proxy", "zwave", "openhab5", "dashboard"
 $script = @"
-  DEBIAN_FRONTEND=noninteractive apt-get update && apt-get upgrade --yes
-  echo ''
-  [ -f update.ps1 ] && pwsh './update.ps1'
+  DEBIAN_FRONTEND=noninteractive apt-get update && apt-get upgrade --yes &&
+  [ -f update.ps1 ] && echo '' && pwsh './update.ps1'
 "@
 
 foreach ($vm in $vms) {
