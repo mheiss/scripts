@@ -5,7 +5,7 @@ function RunCommands {
         [string]$destination,
         [string]$command
     )
-    
+
     $arguments = @("$user@$destination", $command)
     $argumentsString = $arguments -join " "
 
@@ -51,16 +51,17 @@ function Write-Header {
 # Update all VMs
 ##------------------
 $vms = 'evcc', 'influx', 'dyndns', 'traefik', 'grafana', 'keycloak', "oauth2-proxy", "zwave", "openhab5", "dashboard"
+$script = @"
+  DEBIAN_FRONTEND=noninteractive apt-get update && apt-get upgrade --yes
+  echo ''
+  [ -f update.ps1 ] && pwsh './update.ps1'
+"@
+
 foreach ($vm in $vms) {
     $user = "root"
     $destination = "$vm.heiss.lan"
-    $aptUpdate = "DEBIAN_FRONTEND=noninteractive apt-get update && apt-get upgrade --yes"
-    $appUpdate = "[ -f update.ps1 ] && pwsh ./update.ps1"
 
     Write-Header "Updating $destination"
-
-    RunCommands -user $user -destination $destination -command $aptUpdate
-    Write-Host ""
-    RunCommands -user $user -destination $destination -command $appUpdate
+    RunCommands -user $user -destination $destination -command $script
 }
 
