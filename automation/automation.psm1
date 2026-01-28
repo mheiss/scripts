@@ -44,7 +44,7 @@ function Get-VmList {
     Where-Object {
         $_ -ne "" -and
         -not $_.StartsWith("#")
-    }
+    } |
     ForEach-Object { 
         if ($_.Contains(".")) { 
             $_ 
