@@ -1,11 +1,13 @@
 {
     "cSpell.words": [
+        "dpkg",
         "dyndns",
         "evcc",
         "grafana",
         "noninteractive",
         "openhab",
         "pinfo",
+        "sshs",
         "traefik",
         "zwave"
     ]
