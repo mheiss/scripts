@@ -5,5 +5,5 @@ Import-Module ./automation
 ##------------------
 foreach ($vm in Get-VmList './vm.txt') {
     Write-Header "Configuring $vm"
-    Enable-VmRemoting -VmName $vm -User "root"
+    Invoke-SshScript -VmName $vm -User "root" -LocalPath .\scripts\remoting.sh
 }

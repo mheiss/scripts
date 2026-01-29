@@ -1,5 +1,5 @@
 
-#region Writes out a nice header 
+# Prints out a nice header
 function Write-Header {
     param(
         [string]$header
@@ -22,7 +22,6 @@ function Write-Header {
         }
     }
 }
-#endregion
 
 # Reads the list of VMs from the file
 # If the entry already contains a dot, assume it's a full hostname
@@ -54,9 +53,8 @@ function Get-VmList {
         } 
     }
 }
-#endregion
 
-#region New Session
+# Starts a new power shell session
 function New-VmSession {
     [CmdletBinding()]
     param(
@@ -69,10 +67,9 @@ function New-VmSession {
 
     New-PSSession -HostName $VmName -UserName $User
 }
-#endregion
 
-#region Invoke command
-function Invoke-VmCommand {
+# Invokes the given command via PWSH remoting.
+function Invoke-PwshCommand {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -91,7 +88,7 @@ function Invoke-VmCommand {
         Invoke-Command -Session $session -ScriptBlock {
             param($cmds)
             foreach ($cmd in $cmds) {
-                Write-Host "[$env:COMPUTERNAME] >>> $cmd"
+                Write-Host ">>> $cmd"
                 Invoke-Expression $cmd
             }
         } -ArgumentList ($Commands)
@@ -102,51 +99,51 @@ function Invoke-VmCommand {
         }
     }
 }
-#endregion
 
-#region VM remoting
-function Enable-VmRemoting {
+# Invokes the given file via SSH
+function Invoke-SshScript {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
         [string]$VmName,
 
         [Parameter(Mandatory)]
-        [string]$User
+        [string]$User,
+
+        [Parameter(Mandatory)]
+        [string]$LocalPath
     )
 
-    $commands = @(
-        # Install PowerShell if missing
-        'if ! command -v pwsh >/dev/null 2>&1; then
-             echo "Installing PowerShell..."
-             apt-get update -y
-             apt-get install -y wget apt-transport-https software-properties-common
-             wget -q https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb -O /tmp/packages-microsoft-prod.deb
-             dpkg -i /tmp/packages-microsoft-prod.deb
-             apt-get update -y
-             apt-get install -y powershell
-         else
-             echo "PowerShell already installed"
-         fi',
+    if (-not (Test-Path $LocalPath)) {
+        throw "Local file not found: $LocalPath"
+    }
 
-        # Ensure subsystem is configured
-        'if ! grep -q "^Subsystem powershell" /etc/ssh/sshd_config; then
-             echo "Configuring PowerShell SSH subsystem..."
-             echo "Subsystem powershell /usr/bin/pwsh -sshs -NoLogo -NoProfile" >> /etc/ssh/sshd_config
-         else
-             echo "PowerShell subsystem already configured"
-         fi',
+    # Extract extension (.ps1, .sh, etc.)
+    $extension = [IO.Path]::GetExtension($LocalPath)
 
-        # Restart SSH
-        'echo "Restarting SSH..."
-         systemctl restart sshd || systemctl restart ssh'
-    )
+    # Generate random filename
+    $random = -join ((48..57) + (97..122) | Get-Random -Count 12 | ForEach-Object {[char]$_})
+    $fileName = "script-$random$extension"
 
-    Invoke-VmCommand -VmName $VmName -User $User -Commands $commands
+    # Determine remote home directory
+    $remoteHome = if ($User -eq "root") { 
+        "/root" 
+    } else { 
+        "/home/$User" 
+    }
+
+    # Final remote path
+    $remotePath = "$remoteHome/$fileName"
+
+    Write-Host ">>> Uploading $LocalPath to $remotePath"
+    & scp $LocalPath "${User}@${VmName}:${remotePath}"
+
+    Write-Host ">>> Executing remote script"
+    & ssh $User@$VmName "bash $remotePath"
+    & ssh $User@$VmName "rm -rf $remotePath"
+
 }
-#endregion
 
-#region Update
 function Update-Vm {
     [CmdletBinding()]
     param(
@@ -164,8 +161,5 @@ function Update-Vm {
         'if [ -f ./update.ps1 ]; then pwsh ./update.ps1; fi'
     )
 
-    Invoke-VmCommand -VmName $VmName -User $User -Commands $commands
+    Invoke-PwshCommand -VmName $VmName -User $User -Commands $commands
 }
-#endregion
-
-Export-ModuleMember -Function Get-VmList, New-VmSession, Invoke-VmCommand, Enable-VmRemoting, Update-Vm, Write-Header

@@ -7,6 +7,7 @@
         "noninteractive",
         "openhab",
         "pinfo",
+        "Remotingtools",
         "sshs",
         "traefik",
         "zwave"
