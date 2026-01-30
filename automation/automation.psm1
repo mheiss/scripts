@@ -68,7 +68,7 @@ function New-VmSession {
     New-PSSession -HostName $VmName -UserName $User
 }
 
-# Invokes the given command via PWSH remoting.
+# Invokes the given script via PWSH remoting.
 function Invoke-PwshCommand {
     [CmdletBinding()]
     param(
@@ -81,16 +81,11 @@ function Invoke-PwshCommand {
         [Parameter(Mandatory)]
         [string[]]$Commands
     )
-
     $session = New-VmSession -VmName $VmName -User $User
-
     try {
-        Invoke-Command -Session $session -ScriptBlock {
-            param($cmds)
-            foreach ($cmd in $cmds) {
-                Write-Host ">>> $cmd"
-                Invoke-Expression $cmd
-            }
+        Invoke-Command -Session $session -ScriptBlock { 
+            param($cmds) 
+            Invoke-Expression ($cmds -join "`n") 
         } -ArgumentList ($Commands)
     }
     finally {
@@ -100,7 +95,7 @@ function Invoke-PwshCommand {
     }
 }
 
-# Invokes the given file via SSH
+# Uploads a script file via SSH and executes it
 function Invoke-SshScript {
     [CmdletBinding()]
     param(
@@ -117,11 +112,9 @@ function Invoke-SshScript {
     if (-not (Test-Path $LocalPath)) {
         throw "Local file not found: $LocalPath"
     }
-
-    # Extract extension (.ps1, .sh, etc.)
-    $extension = [IO.Path]::GetExtension($LocalPath)
-
+    
     # Generate random filename
+    $extension = [IO.Path]::GetExtension($LocalPath)
     $random = -join ((48..57) + (97..122) | Get-Random -Count 12 | ForEach-Object {[char]$_})
     $fileName = "script-$random$extension"
 
@@ -131,8 +124,6 @@ function Invoke-SshScript {
     } else { 
         "/home/$User" 
     }
-
-    # Final remote path
     $remotePath = "$remoteHome/$fileName"
 
     Write-Host ">>> Uploading $LocalPath to $remotePath"
@@ -141,25 +132,4 @@ function Invoke-SshScript {
     Write-Host ">>> Executing remote script"
     & ssh $User@$VmName "bash $remotePath"
     & ssh $User@$VmName "rm -rf $remotePath"
-
-}
-
-function Update-Vm {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [string]$VmName,
-
-        [Parameter(Mandatory)]
-        [string]$User
-    )
-
-    $commands = @(
-        'export DEBIAN_FRONTEND=noninteractive',
-        'apt-get update -y',
-        'apt-get upgrade -y',
-        'if [ -f ./update.ps1 ]; then pwsh ./update.ps1; fi'
-    )
-
-    Invoke-PwshCommand -VmName $VmName -User $User -Commands $commands
 }
