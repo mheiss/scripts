@@ -78,18 +78,33 @@ function Invoke-PwshCommand {
         [Parameter(Mandatory)]
         [string]$User,
 
-        [Parameter(Mandatory)]
-        [string[]]$Commands
+        [Parameter(Mandatory, ParameterSetName = 'Array')] 
+        [string[]]$Commands, 
+        
+        [Parameter(Mandatory, ParameterSetName = 'File')] 
+        [string]$FilePath
     )
+    switch ($PSCmdlet.ParameterSetName) { 
+        'Array' { 
+            $cmds = $Commands 
+        } 
+        'File' { 
+            if (-not (Test-Path -Path $FilePath -PathType Leaf)) { 
+                throw "File not found: $FilePath" 
+            } 
+            $cmds = Get-Content -Path $FilePath -Raw -ErrorAction Stop 
+        } 
+    }
+
     $session = New-VmSession -VmName $VmName -User $User
     try {
         Invoke-Command -Session $session -ScriptBlock { 
             param($cmds) 
             Invoke-Expression ($cmds -join "`n") 
-        } -ArgumentList ($Commands)
+        } -ArgumentList ($cmds)
     }
     finally {
-        if ($session) {
+        if ($session -and $session.State -eq 'Opened') {
             Remove-PSSession $session
         }
     }
@@ -115,13 +130,14 @@ function Invoke-SshScript {
     
     # Generate random filename
     $extension = [IO.Path]::GetExtension($LocalPath)
-    $random = -join ((48..57) + (97..122) | Get-Random -Count 12 | ForEach-Object {[char]$_})
+    $random = -join ((48..57) + (97..122) | Get-Random -Count 12 | ForEach-Object { [char]$_ })
     $fileName = "script-$random$extension"
 
     # Determine remote home directory
     $remoteHome = if ($User -eq "root") { 
         "/root" 
-    } else { 
+    }
+    else { 
         "/home/$User" 
     }
     $remotePath = "$remoteHome/$fileName"
