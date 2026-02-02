@@ -12,18 +12,15 @@ if ! command -v pwsh >/dev/null 2>&1; then
         
     #Start a PowerShell session on Linux
     pwsh -NoLogo -NoProfile -Command "Install-Module -Name Microsoft.PowerShell.RemotingTools -Force -Scope CurrentUser"
-        
-    # Restart daemon
-    systemctl restart ssh
-else
-    echo "PowerShell already installed."
 fi
+
+# Enable authentication via public key
+SSH_CONFIG_FILE=/etc/ssh/sshd_config
+sed -i 's/^#[[:space:]]*PubkeyAuthentication[[:space:]]\+yes$/PubkeyAuthentication yes/' "$SSH_CONFIG_FILE"
 
 # Ensure subsystem is configured
-if ! grep -q "^Subsystem powershell" /etc/ssh/sshd_config; then
-    echo "Configuring PowerShell SSH subsystem..."
-    echo "Subsystem powershell /usr/bin/pwsh -sshs -NoLogo -NoProfile" >> /etc/ssh/sshd_config
-else
-    echo "PowerShell subsystem already configured."
-fi
+SUBSYSTEM="Subsystem powershell /usr/bin/pwsh -sshs -NoLogo -NoProfile"
+grep -qxF "$SUBSYSTEM" "$SSH_CONFIG_FILE" || sed -i "/^Subsystem[[:space:]]\+sftp[[:space:]]\+/a $SUBSYSTEM" "$SSH_CONFIG_FILE"
 
+# Restart daemon
+systemctl restart ssh
