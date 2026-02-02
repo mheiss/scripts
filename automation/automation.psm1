@@ -31,27 +31,29 @@ function Get-VmList {
         [Parameter(Mandatory)]
         [string]$Path,
 
-        [string]$Domain = "heiss.lan"
+        [Parameter(Mandatory)]
+        [string]$Domain
     )
-
     if (-not (Test-Path $Path)) {
         throw "VM list file not found: $Path"
     }
 
-    Get-Content $Path |
-    ForEach-Object { $_.Trim() } |
-    Where-Object {
-        $_ -ne "" -and
-        -not $_.StartsWith("#")
-    } |
-    ForEach-Object { 
-        if ($_.Contains(".")) { 
-            $_ 
+    Get-Content $Path | 
+        ForEach-Object { 
+            $_.Trim() 
+        } |
+        Where-Object {
+            $_ -ne "" -and
+            -not $_.StartsWith("#")
+        } |
+        ForEach-Object { 
+            if ($_.Contains(".")) { 
+                $_ 
+            }
+            else { 
+                "$_.$Domain" 
+            } 
         }
-        else { 
-            "$_.$Domain" 
-        } 
-    }
 }
 
 # Starts a new power shell session
@@ -130,7 +132,7 @@ function Invoke-SshScript {
     
     # Generate random filename
     $extension = [IO.Path]::GetExtension($LocalPath)
-    $random = -join ((48..57) + (97..122) | Get-Random -Count 12 | ForEach-Object { [char]$_ })
+    $random = New-Guid
     $fileName = "script-$random$extension"
 
     # Determine remote home directory

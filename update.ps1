@@ -4,7 +4,7 @@ Import-Module ./automation
 # Update all VMs
 ##------------------
 $user = "root"
-foreach ($vm in Get-VmList './vm.txt') {
+foreach ($vm in Get-VmList -Domain "heiss.lan" -Path './vm.txt') {
     Write-Header "Updating $vm"
     Invoke-PwshCommand -VmName $vm -User $User -FilePath ".\scripts\apt-get-update.ps1"
 
