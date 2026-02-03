@@ -1,4 +1,4 @@
-Import-Module ./automation
+Import-Module ./Automation
 
 ##-----------------
 # Update all VMs
