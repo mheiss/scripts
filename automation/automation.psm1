@@ -194,7 +194,7 @@ function Update-App {
     Write-Host "Update available: $Version."
     New-Item -ItemType Directory -Path $TargetDir | Out-Null
 
-    # Select the Linux ZIP asset
+    # Select the desired asset
     $Asset = $Response.assets | Where-Object { $_.name -match $AssetName }
     if (-not $Asset) {
         Write-Host "Asset $AssetName not found!"
@@ -208,14 +208,29 @@ function Update-App {
     Write-Host "Downloading $FileName..."
     Invoke-WebRequest -Uri $DownloadUrl -OutFile $FilePath
 
+    # Unpack if TAR.GZ
+    if ($FileName -imatch "\.tar\.gz$") { 
+        Write-Host "Extracting archive..." 
+        bash -c "tar -xzf $FilePath -C $TargetDir "
+        Remove-Item $FilePath
+    }
+
     # Unpack if ZIP 
-    if ($FileName -match "\.zip$") { 
-        Write-Host "Extracting ZIP..." 
+    if ($FileName -imatch "\.zip$") { 
+        Write-Host "Extracting archive..." 
         Expand-Archive -Path $FilePath -DestinationPath $TargetDir -Force 
+        Remove-Item $FilePath
+    }
+
+    # Abort if we cannot find the executable
+    $AppPath = Join-Path $TargetDir $AppName
+    if (-not $AppPath) {
+        Write-Host "Application $AppPath not found!"
+        Remove-Item -Path $TargetDir -Recurse -Force
+        return
     }
 
     # Update symlink
-    $AppPath = Join-Path $TargetDir $AppName
     Write-Host "Updating symlink $AppPath -> $SymlinkPath"
     bash -c "chmod +x '$AppPath'"
     bash -c "ln -s -f '$AppPath' '$SymlinkPath'"

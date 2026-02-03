@@ -12,7 +12,8 @@ foreach ($vm in Get-VmList -Domain "heiss.lan" -Path './vm.txt') {
     $name = $vm.Split('.')[0]
     $updateScript = ".\scripts\$name\update.ps1"
     if (Test-Path $updateScript) {
-       Invoke-PwshCommand -VmName $vm -User $user -FilePath $updateScript
+        Write-Host ""
+        Invoke-PwshCommand -VmName $vm -User $user -FilePath $updateScript
     }
 }
 
