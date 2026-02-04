@@ -5,6 +5,7 @@
         "dyndns",
         "evcc",
         "grafana",
+        "linux",
         "noninteractive",
         "openhab",
         "pinfo",

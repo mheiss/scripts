@@ -176,7 +176,7 @@ function Update-App {
         [Parameter(Mandatory)]
         [string]$SymlinkPath
     )
-    Write-Host "Checking for updates for $AppName..."
+    Write-Host "Checking for updates for $Repo..."
     
     $ReleaseEndpoint = "https://api.github.com/repos/$Repo/releases/latest"
     $Response = Invoke-RestMethod -Uri $ReleaseEndpoint -Headers @{ "User-Agent" = "PowerShell" }
@@ -192,21 +192,30 @@ function Update-App {
     }
 
     Write-Host "Update available: $Version."
-    New-Item -ItemType Directory -Path $TargetDir | Out-Null
-
+    
     # Select the desired asset
     $Asset = $Response.assets | Where-Object { $_.name -match $AssetName }
-    if (-not $Asset) {
+    if (-not ($Asset -and 
+            $Asset.PSObject.Properties.Match('browser_download_url') -and 
+            $Asset.PSObject.Properties.Match('name'))) {
         Write-Host "Asset $AssetName not found!"
         return
     }
-
+    
     $DownloadUrl = $Asset.browser_download_url
     $FileName = $Asset.name
     $FilePath = Join-Path $TargetDir $FileName
-
+    
     Write-Host "Downloading $FileName..."
+    New-Item -ItemType Directory -Path $TargetDir | Out-Null
     Invoke-WebRequest -Uri $DownloadUrl -OutFile $FilePath
+
+    # Exit if downloading failed
+    if (-not (Test-Path $FilePath)) {
+        Write-Host "Downloading $DownloadUrl failed!"
+        Remove-Item -Path $TargetDir -Recurse -Force
+        return;
+    }
 
     # Unpack if TAR.GZ
     if ($FileName -imatch "\.tar\.gz$") { 
@@ -222,9 +231,18 @@ function Update-App {
         Remove-Item $FilePath
     }
 
+    # Check if the archive only contained a directory
+    # If so, move everything one level up
+    $Name = $FileName -replace '\.tar\.gz$|\.zip$', ''
+    $Dir =  Join-Path $TargetDir $Name
+    if (Test-Path $Dir -PathType Container) {
+        Move-Item -Path "$Dir\*" -Destination (Split-Path $Dir -Parent)
+        Remove-Item -Path $Dir -Recurse -Force
+    }
+
     # Abort if we cannot find the executable
     $AppPath = Join-Path $TargetDir $AppName
-    if (-not $AppPath) {
+    if (-not (Test-Path $AppPath)) {
         Write-Host "Application $AppPath not found!"
         Remove-Item -Path $TargetDir -Recurse -Force
         return

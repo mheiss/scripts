@@ -5,5 +5,4 @@ $AppName = "traefik"
 $ServiceName = "traefik"
 $SymlinkPath = "/sbin/traefik"
 
-
 Update-App -Repo $Repo -AssetName $AssetName -BaseDir $BaseDir -AppName $AppName -ServiceName $ServiceName -SymlinkPath $SymlinkPath
