@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+
 if ! command -v pwsh >/dev/null 2>&1; then
     # Download the Microsoft repository GPG keys
     source /etc/os-release
@@ -10,17 +12,17 @@ if ! command -v pwsh >/dev/null 2>&1; then
     # Update the list of packages after we added packages.microsoft.com
     apt-get update && apt-get install -y powershell
         
-    #Start a PowerShell session on Linux
+    # Start a PowerShell session on Linux
     pwsh -NoLogo -NoProfile -Command "Install-Module -Name Microsoft.PowerShell.RemotingTools -Force -Scope CurrentUser"
 fi
 
 # Enable authentication via public key
 SSH_CONFIG_FILE=/etc/ssh/sshd_config
-sed -i 's/^#[[:space:]]*PubkeyAuthentication[[:space:]]\+yes$/PubkeyAuthentication yes/' "$SSH_CONFIG_FILE"
+sed -i 's/^#\?PubkeyAuthentication.*/PubkeyAuthentication yes/' "$SSH_CONFIG_FILE"
 
 # Ensure subsystem is configured
 SUBSYSTEM="Subsystem powershell /usr/bin/pwsh -sshs -NoLogo -NoProfile"
 grep -qxF "$SUBSYSTEM" "$SSH_CONFIG_FILE" || sed -i "/^Subsystem[[:space:]]\+sftp[[:space:]]\+/a $SUBSYSTEM" "$SSH_CONFIG_FILE"
 
-# Restart daemon
-systemctl restart ssh
+# Restart SSH daemon 
+systemctl restart ssh 2>/dev/null || systemctl restart sshd
