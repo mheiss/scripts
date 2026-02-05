@@ -9,6 +9,7 @@
         "noninteractive",
         "openhab",
         "pinfo",
+        "postgresql",
         "Remotingtools",
         "sshs",
         "traefik",

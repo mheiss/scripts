@@ -4,6 +4,7 @@ dyndns
 traefik
 grafana
 keycloak
+postgresql
 oauth2-proxy
 zwave
 openhab5
