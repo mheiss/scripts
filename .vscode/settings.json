@@ -10,6 +10,7 @@
         "openhab",
         "pinfo",
         "postgresql",
+        "pscustomobject",
         "Remotingtools",
         "sshs",
         "traefik",
