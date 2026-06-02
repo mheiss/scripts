@@ -170,8 +170,6 @@ function Update-App {
         [Parameter(Mandatory)]
         [string]$BaseDir,
         [Parameter(Mandatory)]
-        [string]$AppName,
-        [Parameter(Mandatory)]
         [string]$ServiceName,
         [Parameter(Mandatory)]
         [string]$SymlinkPath
@@ -214,44 +212,47 @@ function Update-App {
     if (-not (Test-Path $FilePath)) {
         Write-Host "Downloading $DownloadUrl failed!"
         Remove-Item -Path $TargetDir -Recurse -Force
-        return;
+        return
     }
 
     # Unpack if TAR.GZ
     if ($FileName -imatch "\.tar\.gz$") { 
-        Write-Host "Extracting archive..." 
-        bash -c "tar -xzf $FilePath -C $TargetDir "
+        Write-Host "Extracting archive to $TargetDir..." 
+        bash -c "tar -xzf '$FilePath' -C '$TargetDir'"
         Remove-Item $FilePath
     }
 
     # Unpack if ZIP 
     if ($FileName -imatch "\.zip$") { 
-        Write-Host "Extracting archive..." 
+        Write-Host "Extracting archive to $TargetDir..." 
         Expand-Archive -Path $FilePath -DestinationPath $TargetDir -Force 
         Remove-Item $FilePath
     }
 
-    # Check if the archive only contained a directory
-    # If so, move everything one level up
-    $Name = $FileName -replace '\.tar\.gz$|\.zip$', ''
-    $Dir =  Join-Path $TargetDir $Name
-    if (Test-Path $Dir -PathType Container) {
-        Move-Item -Path "$Dir\*" -Destination (Split-Path $Dir -Parent)
-        Remove-Item -Path $Dir -Recurse -Force
+    # Detect if the archive extracted into a single top-level directory
+    $Children = Get-ChildItem -Path $TargetDir
+    if ($Children.Count -eq 1 -and $Children[0].PSIsContainer) {
+        $InnerDir = $Children[0].FullName
+    
+        Move-Item -Path "$InnerDir\*" -Destination $TargetDir
+        Remove-Item -Path $InnerDir -Recurse -Force
     }
 
-    # Abort if we cannot find the executable
-    $AppPath = Join-Path $TargetDir $AppName
-    if (-not (Test-Path $AppPath)) {
-        Write-Host "Application $AppPath not found!"
-        Remove-Item -Path $TargetDir -Recurse -Force
-        return
+    # Detect app type by inspecting extracted directory
+    $Children = Get-ChildItem -Path $TargetDir -Force
+    if ($Children.Count -eq 1 -and -not $Children[0].PSIsContainer) {
+        $SymlinkTarget = $Children[0].FullName
+        Write-Host "Detected single-file application: $SymlinkTarget"
+        bash -c "chmod +x '$SymlinkTarget'"
+    }
+    else {
+        $SymlinkTarget = $TargetDir
+        Write-Host "Detected directory-based application: $SymlinkTarget"
     }
 
     # Update symlink
-    Write-Host "Updating symlink $AppPath -> $SymlinkPath"
-    bash -c "chmod +x '$AppPath'"
-    bash -c "ln -s -f '$AppPath' '$SymlinkPath'"
+    Write-Host "Updating symlink $SymlinkPath -> $SymlinkTarget"
+    bash -c "ln -sfn '$SymlinkTarget' '$SymlinkPath'"
 
     # Restart service
     Write-Host "Restarting service: $ServiceName"
