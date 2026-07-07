@@ -1,24 +1,37 @@
 # Smart Home VM Automation Scripts
 
+## Overview
+
 PowerShell and shell scripts for preparing and maintaining smart-home virtual machines over SSH and PowerShell remoting.
 
-A central feature is full automation for applications published as GitHub Releases. For supported services, the scripts check the latest release, select the configured asset, download and extract it, update the executable symlink, and restart the related systemd service without manual release handling.
+A central feature is full automation for applications published as GitHub Releases. For supported services, the scripts handle the release lifecycle end to end:
+
+- Check the latest GitHub release.
+- Select the configured release asset.
+- Download and extract the asset.
+- Update the executable symlink.
+- Restart the related systemd service.
+- Print service status after the restart.
 
 The repository has two main workflows:
 
 1. Bootstrap each VM so PowerShell remoting over SSH is available.
 2. Update each VM by running package updates and fully automated service-specific GitHub Release updates.
 
+## Notice
+
+> This repository is provided for inspiration and reference only. It reflects my specific smart-home environment and is not intended to be used directly without careful review, adaptation, and testing in your own infrastructure.
+
 ## Requirements
 
-Local machine:
+### Local Machine
 
 - PowerShell.
 - SSH client tools: `ssh` and `scp`.
 - Access to the target VMs as `root`.
 - SSH key authentication configured or otherwise available.
 
-Target VMs:
+### Target VMs
 
 - Debian-like Linux distribution.
 - `bash`, `apt-get`, `systemctl`, `wget`, and `dpkg`.
@@ -102,7 +115,15 @@ bash -c "export DEBIAN_FRONTEND=noninteractive && apt-get upgrade -y"
 
 Custom service updates are stored under `scripts/<vm-name>/update.ps1`. The top-level `update.ps1` runs them only when the folder name matches the short VM name from `vm.txt`.
 
-These scripts are thin service definitions around `Update-App`. Each one describes the GitHub repository, release asset pattern, install directory, systemd service, and symlink path. `Update-App` handles the full release lifecycle: latest-version detection, download, extraction, executable setup, symlink replacement, service restart, and status output.
+These scripts are thin service definitions around `Update-App`. Each one describes:
+
+- GitHub repository.
+- Release asset pattern.
+- Install directory.
+- systemd service.
+- Symlink path.
+
+`Update-App` handles latest-version detection, download, extraction, executable setup, symlink replacement, service restart, and status output.
 
 | Folder                 | GitHub repo                 | Asset pattern           | Install base        | Service        | Symlink              |
 | ---------------------- | --------------------------- | ----------------------- | ------------------- | -------------- | -------------------- |
@@ -132,7 +153,7 @@ Then run:
 .\update.ps1
 ```
 
-# Automation Module
+## Automation Module
 
 The reusable functions live in `Automation/automation.psm1`. The module manifest `Automation/Automation.psd1` exports all functions.
 
