@@ -24,27 +24,43 @@ function Write-Header {
 }
 
 # Reads the list of VMs from the file
+# The default domain is configured with a domain=<name> entry
 # If the entry already contains a dot, assume it's a full hostname
 function Get-VmList {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [string]$Path,
-
-        [Parameter(Mandatory)]
-        [string]$Domain
+        [string]$Path
     )
     if (-not (Test-Path $Path)) {
         throw "VM list file not found: $Path"
     }
 
-    Get-Content $Path | 
+    $entries = Get-Content $Path | 
     ForEach-Object { 
         $_.Trim() 
     } |
     Where-Object {
         $_ -ne "" -and
         -not $_.StartsWith("#")
+    }
+
+    $domain = $entries |
+    Where-Object {
+        $_ -match '^domain\s*='
+    } |
+    ForEach-Object {
+        ($_ -split '=', 2)[1].Trim()
+    } |
+    Select-Object -First 1
+
+    if (-not $domain) {
+        throw "VM list file does not contain a domain=<name> entry: $Path"
+    }
+
+    $entries |
+    Where-Object {
+        $_ -notmatch '^domain\s*='
     } |
     ForEach-Object { 
         if ($_.Contains(".")) { 

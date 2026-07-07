@@ -1,3 +1,5 @@
+domain=heiss.lan
+
 evcc
 influx
 dyndns
