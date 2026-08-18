@@ -219,6 +219,16 @@ Behavior:
 9. Updates the symlink with `ln -sfn`.
 10. Restarts the systemd service.
 11. Prints service status with `systemctl status --no-pager`.
+12. Removes old version directories, keeping only the latest release and the previous installed release.
+
+### `Remove-OldAppVersion`
+
+Removes old application release directories from a versioned install root, keeping the specified latest version and the newest previous installed version.
+
+Parameters:
+
+- `BaseDir`: versioned install directory root.
+- `LatestVersion`: latest version directory name to keep.
 
 ### `Import-FunctionsToRemote`
 

@@ -176,6 +176,40 @@ function Invoke-SshScript {
     & ssh $User@$VmName "rm -rf $remotePath"
 }
 
+# Removes old application release directories, keeping the latest and previous release
+function Remove-OldAppVersion {
+    param(
+        [Parameter(Mandatory)]
+        [string]$BaseDir,
+
+        [Parameter(Mandatory)]
+        [string]$LatestVersion
+    )
+
+    if (-not (Test-Path -Path $BaseDir -PathType Container)) {
+        return
+    }
+
+    $VersionDirs = Get-ChildItem -Path $BaseDir -Directory |
+    Where-Object { -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } |
+    Sort-Object -Property LastWriteTime -Descending
+
+    $VersionsToKeep = @($VersionDirs |
+    Where-Object { $_.Name -eq $LatestVersion } |
+    Select-Object -First 1)
+
+    $VersionsToKeep += @($VersionDirs |
+    Where-Object { $_.Name -ne $LatestVersion } |
+    Select-Object -First 1)
+
+    $VersionDirs |
+    Where-Object { $_.FullName -notin $VersionsToKeep.FullName } |
+    ForEach-Object {
+        Write-Host "Removing old release: $($_.FullName)"
+        Remove-Item -Path $_.FullName -Recurse -Force
+    }
+}
+
 # Updates an existing application hosted on GitHub
 function Update-App {
     param(
@@ -188,8 +222,14 @@ function Update-App {
         [Parameter(Mandatory)]
         [string]$ServiceName,
         [Parameter(Mandatory)]
-        [string]$SymlinkPath
+        [string]$SymlinkPath,
+        [string]$User,
+        [string]$Group
     )
+    if (($User -and -not $Group) -or ($Group -and -not $User)) {
+        throw "User and Group must be specified together."
+    }
+
     Write-Host "Checking for updates for $Repo..."
     
     $ReleaseEndpoint = "https://api.github.com/repos/$Repo/releases/latest"
@@ -202,10 +242,12 @@ function Update-App {
     # Exit early if already downloaded
     if (Test-Path $TargetDir) {
         Write-Host "Latest release $Tag is already installed. Nothing to do."
+        Remove-OldAppVersion -BaseDir $BaseDir -LatestVersion $Version
         return
     }
 
     Write-Host "Update available: $Version."
+    Write-Host "Release notes: $($Response.html_url)"
     
     # Select the desired asset
     $Asset = $Response.assets | Where-Object { $_.name -match $AssetName }
@@ -266,6 +308,11 @@ function Update-App {
         Write-Host "Detected directory-based application: $SymlinkTarget"
     }
 
+    if ($User -and $Group) {
+        Write-Host "Setting ownership of $TargetDir to ${User}:${Group}"
+        bash -c "chown -R '${User}:${Group}' '$TargetDir'"
+    }
+
     # Update symlink
     Write-Host "Updating symlink $SymlinkPath -> $SymlinkTarget"
     bash -c "ln -sfn '$SymlinkTarget' '$SymlinkPath'"
@@ -274,6 +321,8 @@ function Update-App {
     Write-Host "Restarting service: $ServiceName"
     bash -c "systemctl restart '$ServiceName'"
     bash -c "systemctl status '$ServiceName' --no-pager"
+
+    Remove-OldAppVersion -BaseDir $BaseDir -LatestVersion $Version
 }
 
 # Makes certain commands available to the remote session
