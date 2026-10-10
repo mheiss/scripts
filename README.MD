@@ -194,6 +194,35 @@ When `-FilePath` is used, the file is read locally, sent to the remote session, 
 
 Uploads a local script to a remote host with `scp`, runs it with `ssh`, then deletes the uploaded file. This is used by `setup.ps1` before PowerShell remoting is available.
 
+### `Update-FullyDisplay`
+
+Requests a Fully Kiosk Browser display to refresh the smart-home dashboard.
+
+The command reads an env-style secrets file on the target VM. The file must define:
+
+```text
+FULLY_URL=http://display-host:2323
+FULLY_PASSWORD=<password>
+```
+
+Keep this file outside the repository and restrict it to the account running the update, for example with root ownership and `600` permissions.
+
+Parameters:
+
+- `SecretFile`: path to the env-style secrets file. Defaults to `/etc/dashboard/fully.env`.
+
+Example:
+
+```powershell
+Update-FullyDisplay -SecretFile "/etc/dashboard/fully.env"
+```
+
+Behavior:
+
+1. Loads `FULLY_URL` and `FULLY_PASSWORD` from the configured secrets file.
+2. Sends `clearCache`, `loadStartUrl`, and `screenOn` commands to the Fully remote admin API.
+3. Prints a warning and returns without failing the full update when the secrets file or required values are missing.
+
 ### `Update-App`
 
 Updates an application distributed through GitHub releases.

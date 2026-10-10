@@ -210,6 +210,54 @@ function Remove-OldAppVersion {
     }
 }
 
+<#
+.SYNOPSIS
+Requests a Fully Kiosk Browser display to refresh the smart-home dashboard.
+
+.DESCRIPTION
+Reads FULLY_URL and FULLY_PASSWORD from a local env-style secrets file, then calls
+the Fully remote admin API to clear the cache, reload the start URL, and turn the
+screen on. The secrets file is expected to exist on the target VM where this
+command runs.
+
+.PARAMETER SecretFile
+Path to an env-style file containing FULLY_URL and FULLY_PASSWORD. Defaults to
+/etc/dashboard/fully.env.
+
+.EXAMPLE
+Update-FullyDisplay -SecretFile "/etc/dashboard/fully.env"
+#>
+function Update-FullyDisplay {
+    param(
+        [string]$SecretFile = "/etc/dashboard/fully.env"
+    )
+
+    if (-not (Test-Path $SecretFile)) {
+        Write-Warning "Fully display config not found: $SecretFile"
+        return
+    }
+
+    Get-Content $SecretFile |
+    Where-Object { $_ -match '^\s*[^#][^=]+=' } |
+    ForEach-Object {
+        $Name, $Value = $_ -split '=', 2
+        Set-Item -Path "Env:$($Name.Trim())" -Value $Value.Trim()
+    }
+
+    if (-not $env:FULLY_URL -or -not $env:FULLY_PASSWORD) {
+        Write-Warning "Fully display config must define FULLY_URL and FULLY_PASSWORD in $SecretFile."
+        return
+    }
+
+    $FullyUrl = $env:FULLY_URL.TrimEnd("/")
+    $FullyPassword = [uri]::EscapeDataString($env:FULLY_PASSWORD)
+
+    $null = Invoke-WebRequest -Uri "$FullyUrl/?cmd=clearCache&password=$FullyPassword"
+    $null = Invoke-WebRequest -Uri "$FullyUrl/?cmd=loadStartUrl&password=$FullyPassword"
+    $null = Invoke-WebRequest -Uri "$FullyUrl/?cmd=screenOn&password=$FullyPassword"
+    Write-Output "Fully Smart-Home display updated."
+}
+
 # Updates an existing application hosted on GitHub
 function Update-App {
     param(
