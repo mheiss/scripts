@@ -218,7 +218,7 @@ Requests a Fully Kiosk Browser display to refresh the smart-home dashboard.
 Reads FULLY_URL and FULLY_PASSWORD from a local env-style secrets file, then calls
 the Fully remote admin API to clear the cache, reload the start URL, and turn the
 screen on. The secrets file is expected to exist on the target VM where this
-command runs.
+command runs, and FULLY_URL must resolve from that VM.
 
 .PARAMETER SecretFile
 Path to an env-style file containing FULLY_URL and FULLY_PASSWORD. Defaults to
@@ -249,12 +249,35 @@ function Update-FullyDisplay {
         return
     }
 
-    $FullyUrl = $env:FULLY_URL.TrimEnd("/")
+    try {
+        $FullyUri = [uri]$env:FULLY_URL
+    }
+    catch {
+        Write-Warning "FULLY_URL is not a valid URL in ${SecretFile}: $env:FULLY_URL"
+        return
+    }
+
+    try {
+        $null = [System.Net.Dns]::GetHostAddresses($FullyUri.Host)
+    }
+    catch {
+        Write-Warning "Fully display host '$($FullyUri.Host)' could not be resolved from this VM. Check DNS or use an IP address in FULLY_URL."
+        return
+    }
+
+    $FullyUrl = $FullyUri.AbsoluteUri.TrimEnd("/")
     $FullyPassword = [uri]::EscapeDataString($env:FULLY_PASSWORD)
 
-    $null = Invoke-WebRequest -Uri "$FullyUrl/?cmd=clearCache&password=$FullyPassword"
-    $null = Invoke-WebRequest -Uri "$FullyUrl/?cmd=loadStartUrl&password=$FullyPassword"
-    $null = Invoke-WebRequest -Uri "$FullyUrl/?cmd=screenOn&password=$FullyPassword"
+    foreach ($Command in @("clearCache", "loadStartUrl", "screenOn")) {
+        try {
+            $null = Invoke-WebRequest -Uri "$FullyUrl/?cmd=$Command&password=$FullyPassword" -NoProxy -ErrorAction Stop
+        }
+        catch {
+            Write-Warning "Fully display command '$Command' failed for host '$($FullyUri.Host)': $($_.Exception.Message)"
+            return
+        }
+    }
+
     Write-Output "Fully Smart-Home display updated."
 }
 

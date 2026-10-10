@@ -220,8 +220,11 @@ Update-FullyDisplay -SecretFile "/etc/dashboard/fully.env"
 Behavior:
 
 1. Loads `FULLY_URL` and `FULLY_PASSWORD` from the configured secrets file.
-2. Sends `clearCache`, `loadStartUrl`, and `screenOn` commands to the Fully remote admin API.
-3. Prints a warning and returns without failing the full update when the secrets file or required values are missing.
+2. Checks that `FULLY_URL` is valid and that its host resolves from the target VM.
+3. Sends `clearCache`, `loadStartUrl`, and `screenOn` commands to the Fully remote admin API.
+4. Prints a warning and returns without failing the full update when the secrets file, required values, DNS lookup, or HTTP request fails.
+
+If the command reports `Name or service not known` or cannot resolve the Fully host, fix DNS for the target VM or use an IP address in `FULLY_URL`.
 
 ### `Update-App`
 
