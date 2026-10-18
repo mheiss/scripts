@@ -194,6 +194,33 @@ When `-FilePath` is used, the file is read locally, sent to the remote session, 
 
 Uploads a local script to a remote host with `scp`, runs it with `ssh`, then deletes the uploaded file. This is used by `setup.ps1` before PowerShell remoting is available.
 
+### `Wait-For-Resource`
+
+Polls an HTTP or HTTPS resource until it returns HTTP 2xx. Returns `$true` on
+success, or warns and returns `$false` on timeout. Redirects are not followed,
+so a redirect to a login page does not count as readiness. Requests bypass proxies.
+
+Parameters:
+
+- `Uri`: required HTTP or HTTPS resource URL.
+- `TimeoutSeconds`: overall polling timeout, default `120`.
+- `RetryIntervalSeconds`: delay between attempts, default `2`.
+- `RequestTimeoutSeconds`: timeout per request, default `5`, capped to the remaining polling time (rounded up to seconds).
+
+The dashboard update uses this helper before refreshing Fully:
+
+```powershell
+if (Wait-For-Resource -Uri "http://localhost:8082") {
+	Update-FullyDisplay -SecretFile "/etc/dashboard/fully.env"
+}
+```
+
+Use the local URL on the dashboard VM to check application readiness without
+depending on external DNS, TLS, reverse proxy, or authentication. A public URL
+such as `https://dashboard.home.arpa` can instead check the full route, provided
+it returns HTTP 2xx without authentication. On timeout, the display refresh is
+skipped and the remaining application updates continue.
+
 ### `Update-FullyDisplay`
 
 Requests a Fully Kiosk Browser display to refresh the smart-home dashboard.

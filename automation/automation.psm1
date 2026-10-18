@@ -1,5 +1,12 @@
 
-# Prints out a nice header
+<#
+.SYNOPSIS
+Prints a heading between dashed separator lines.
+
+.DESCRIPTION
+Writes the supplied heading and matching separator lines directly to the host.
+Does not return pipeline output.
+#>
 function Write-Header {
     param(
         [string]$header
@@ -23,9 +30,15 @@ function Write-Header {
     }
 }
 
-# Reads the list of VMs from the file
-# The default domain is configured with a domain=<name> entry
-# If the entry already contains a dot, assume it's a full hostname
+<#
+.SYNOPSIS
+Reads VM hostnames and the default domain from an inventory file.
+
+.DESCRIPTION
+Ignores blank lines and comments, then appends the domain from the domain=<name>
+entry to VM names without a dot. Returns names containing a dot unchanged.
+Throws if the file is missing or does not define a default domain.
+#>
 function Get-VmList {
     [CmdletBinding()]
     param(
@@ -72,8 +85,15 @@ function Get-VmList {
     }
 }
 
-# Starts a new power shell session.
-# Makes specific functions available in the remote side. 
+<#
+.SYNOPSIS
+Creates a PowerShell remoting session to a VM over SSH.
+
+.DESCRIPTION
+Connects to the supplied VM as the specified user and imports the automation
+functions into the remote session. Returns the session on success and writes
+an error if session creation or function import fails.
+#>
 function New-VmSession {
     [CmdletBinding()]
     param(
@@ -94,7 +114,16 @@ function New-VmSession {
     }
 }
 
-# Invokes the given script via PWSH remoting.
+<#
+.SYNOPSIS
+Runs commands or a local script on a VM through PowerShell remoting.
+
+.DESCRIPTION
+Accepts either an array of commands or a local script path. Creates an SSH-backed
+PowerShell session with the automation functions loaded, executes the supplied
+content on the VM, and removes the session afterward. Throws if the script file
+does not exist.
+#>
 function Invoke-PwshCommand {
     [CmdletBinding()]
     param(
@@ -136,7 +165,16 @@ function Invoke-PwshCommand {
     }
 }
 
-# Uploads a script file via SSH and executes it
+<#
+.SYNOPSIS
+Uploads a local shell script to a VM and executes it over SSH.
+
+.DESCRIPTION
+Copies the script with scp to a randomly named file in the remote user's home
+directory, runs it with bash over SSH, then issues a command to delete the copy.
+Uses /root for root and /home/<user> for other accounts. Throws if the local file
+does not exist.
+#>
 function Invoke-SshScript {
     [CmdletBinding()]
     param(
@@ -176,7 +214,16 @@ function Invoke-SshScript {
     & ssh $User@$VmName "rm -rf $remotePath"
 }
 
-# Removes old application release directories, keeping the latest and previous release
+<#
+.SYNOPSIS
+Removes old application releases while retaining two selected versions.
+
+.DESCRIPTION
+Keeps the directory matching LatestVersion and the most recently modified other
+release directory. Recursively deletes the remaining release directories while
+excluding symbolic links and other reparse points. Returns without changes if
+the base directory does not exist.
+#>
 function Remove-OldAppVersion {
     param(
         [Parameter(Mandatory)]
@@ -208,6 +255,53 @@ function Remove-OldAppVersion {
         Write-Host "Removing old release: $($_.FullName)"
         Remove-Item -Path $_.FullName -Recurse -Force
     }
+}
+
+<#
+.SYNOPSIS
+Waits for an HTTP resource to return a successful status code.
+
+.DESCRIPTION
+Returns true on HTTP 2xx, or warns and returns false when the timeout expires.
+Redirects are not followed so a login page cannot indicate application readiness.
+#>
+function Wait-For-Resource {
+    param(
+        [Parameter(Mandatory)]
+        [ValidateScript({ $_.IsAbsoluteUri -and $_.Scheme -in @('http', 'https') })]
+        [uri]$Uri,
+
+        [ValidateRange(1, 2147483647)]
+        [int]$TimeoutSeconds = 120,
+
+        [ValidateRange(1, 2147483647)]
+        [int]$RetryIntervalSeconds = 2,
+
+        [ValidateRange(1, 2147483647)]
+        [int]$RequestTimeoutSeconds = 5
+    )
+
+    $Timer = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($Timer.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+        $RemainingSeconds = $TimeoutSeconds - $Timer.Elapsed.TotalSeconds
+        $AttemptTimeout = [int][Math]::Ceiling([Math]::Min($RequestTimeoutSeconds, $RemainingSeconds))
+        try {
+            $Response = Invoke-WebRequest -Uri $Uri -NoProxy -UseBasicParsing -MaximumRedirection 0 -TimeoutSec $AttemptTimeout -ErrorAction Stop
+            if ($Response.StatusCode -ge 200 -and $Response.StatusCode -lt 300) {
+                return $true
+            }
+        }
+        catch {
+        }
+
+        $RemainingMilliseconds = ($TimeoutSeconds - $Timer.Elapsed.TotalSeconds) * 1000
+        if ($RemainingMilliseconds -gt 0) {
+            Start-Sleep -Milliseconds ([int][Math]::Min($RetryIntervalSeconds * 1000.0, $RemainingMilliseconds))
+        }
+    }
+
+    Write-Warning "HTTP resource '$Uri' did not become available within $TimeoutSeconds seconds."
+    return $false
 }
 
 <#
@@ -281,7 +375,18 @@ function Update-FullyDisplay {
     Write-Output "Fully Smart-Home display updated."
 }
 
-# Updates an existing application hosted on GitHub
+<#
+.SYNOPSIS
+Updates an installed application from its latest GitHub release.
+
+.DESCRIPTION
+Selects a release asset by name pattern, downloads it into a versioned directory,
+and extracts ZIP or TAR.GZ archives. Updates the executable or directory symlink,
+restarts the systemd service, prints its status, and removes old releases.
+Skips installation when the target version directory already exists, but still
+cleans up old releases. Optional User and Group values must be supplied together
+and set ownership of the downloaded release. Requires Linux tools through bash.
+#>
 function Update-App {
     param(
         [Parameter(Mandatory)]
@@ -396,7 +501,16 @@ function Update-App {
     Remove-OldAppVersion -BaseDir $BaseDir -LatestVersion $Version
 }
 
-# Makes certain commands available to the remote session
+<#
+.SYNOPSIS
+Loads the local automation functions into an existing remote session.
+
+.DESCRIPTION
+Reads ./Automation/Automation.psm1 relative to the current local directory and
+evaluates its contents in the supplied PowerShell session. Loads the whole
+module's function definitions; the required Commands argument is currently not
+used to filter which functions are imported.
+#>
 function Import-FunctionsToRemote {
     param(
         [Parameter(Mandatory)]
@@ -413,7 +527,15 @@ function Import-FunctionsToRemote {
     }
 }
 
-# Reloads this module
+<#
+.SYNOPSIS
+Reloads the local Automation module for interactive development.
+
+.DESCRIPTION
+Removes the loaded Automation module if present, then imports ./Automation with
+Force relative to the current directory. Prints the available module function
+names to the host after importing.
+#>
 function Update-AutomationModule {
     $module = "Automation"
     Remove-Module $module -ErrorAction SilentlyContinue
