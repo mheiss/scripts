@@ -32,11 +32,12 @@ function Write-Header {
 
 <#
 .SYNOPSIS
-Reads VM hostnames from directories in the VM folder.
+Reads VM records from directories in the VM folder.
 
 .DESCRIPTION
-Appends the supplied domain to directory names without a dot. Returns names
-containing a dot unchanged. Throws if the VM folder does not exist.
+Returns each VM's folder name, hostname, and absolute update-script path.
+Appends the supplied domain to names without a dot, leaving full hostnames
+unchanged. Throws if the VM folder does not exist.
 #>
 function Get-VmList {
     [CmdletBinding()]
@@ -55,11 +56,17 @@ function Get-VmList {
     Get-ChildItem -LiteralPath $Path -Directory -ErrorAction Stop |
     Sort-Object Name |
     ForEach-Object {
-        if ($_.Name.Contains(".")) {
+        $hostName = if ($_.Name.Contains(".")) {
             $_.Name
         }
         else {
             "$($_.Name).$Domain"
+        }
+
+        [pscustomobject]@{
+            Name = $_.Name
+            HostName = $hostName
+            UpdateScript = Join-Path $_.FullName 'update.ps1'
         }
     }
 }
@@ -542,6 +549,122 @@ function Import-FunctionsToRemote {
     }
 }
 
+<#
+.SYNOPSIS
+Runs a VM update script and returns structured summary records.
+
+.DESCRIPTION
+Writes an Updating heading, then runs the local script on the VM through
+Invoke-PwshCommand. Captures all redirected output streams while displaying
+progress on the host, using MessageData for information records.
+Catches terminating execution errors, displays a failure message, and includes
+the error in the captured output instead of rethrowing it. Returns the results
+from Get-UpdateSummary in Custom mode, passing the failure flag when an error
+was caught. Does not print the final combined update summary.
+
+.PARAMETER VmName
+VM hostname used for the remote connection and attached to summary records.
+
+.PARAMETER User
+SSH username used for PowerShell remoting to the VM.
+
+.PARAMETER FilePath
+Path to the local PowerShell update script. Its contents are sent to and
+executed on the VM; this is not a path on the remote machine.
+
+.OUTPUTS
+System.Management.Automation.PSCustomObject
+Update result records returned by Get-UpdateSummary, including failure status
+when execution fails. Raw progress output is displayed on the host, not returned.
+
+.EXAMPLE
+$summary = Invoke-VmUpdate -VmName 'dashboard.home.arpa' -User 'root' -FilePath './vms/dashboard/update.ps1'
+
+Runs the dashboard update and captures its structured results in $summary.
+#>
+function Invoke-VmUpdate {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$VmName,
+
+        [Parameter(Mandatory)]
+        [string]$User,
+
+        [Parameter(Mandatory)]
+        [string]$FilePath
+    )
+
+    Write-Header "Updating $VmName"
+    $output = [System.Collections.Generic.List[object]]::new()
+    $failed = $false
+    try {
+        Invoke-PwshCommand -VmName $VmName -User $User -FilePath $FilePath -ErrorAction Stop *>&1 |
+        ForEach-Object {
+            $output.Add($_)
+            if ($_ -is [System.Management.Automation.InformationRecord]) {
+                [string]$_.MessageData | Out-Host
+            }
+            else {
+                $_ | Out-Host
+            }
+        }
+    }
+    catch {
+        $failed = $true
+        $output.Add($_)
+        Write-Host "Update failed for ${VmName}: $_" -ForegroundColor Red
+    }
+
+    Get-UpdateSummary -VmName $VmName -Type Custom -Output $output.ToArray() -Failed:$failed
+}
+
+<#
+.SYNOPSIS
+Parses captured VM update output into structured result records.
+
+.DESCRIPTION
+Recognizes English APT package counts and unpacking messages, application release
+versions and links, and systemd service status. Errors and warnings update the
+current summary record and append diagnostic text to its Details property.
+Unrecognized lines are ignored. If parsing creates no records, returns an Unknown
+result with a no-recognized-result message. Does not execute updates or print output.
+
+.PARAMETER VmName
+VM hostname attached to every returned result.
+
+.PARAMETER Type
+Parsing mode: Apt or Custom. Apt starts with an apt-get summary record and parses
+package updates. Custom recognizes application sections beginning with
+"Checking for updates for <repository>..." and switches to APT parsing on the exact
+line "Updating installed packages". It can therefore parse mixed script output.
+
+.PARAMETER Output
+Captured output records to parse. Uses MessageData for InformationRecord objects
+and string representations for other records, splitting multiline text into lines.
+ErrorRecord and WarningRecord objects also determine failure and warning status.
+Accepts an empty collection and defaults to an empty array.
+
+.PARAMETER Failed
+Marks the current summary record as Failed after parsing, for example when the
+caller caught a terminating error. Does not mark every returned record as failed.
+
+.OUTPUTS
+System.Management.Automation.PSCustomObject
+Records with VM, Type, Application, Status, Version, and Details properties.
+Application and individual package records also include PreviousVersion and
+Changelog. Status is Unknown, Updated, Up to date, Warning, or Failed.
+
+.EXAMPLE
+Get-UpdateSummary -VmName 'dashboard.home.arpa' -Type Custom -Output $output
+
+Parses captured output containing application updates and recognized APT sections.
+
+.EXAMPLE
+Get-UpdateSummary -VmName 'dashboard.home.arpa' -Type Apt -Output $output -Failed
+
+Parses captured APT output and marks its current summary record as failed.
+#>
 function Get-UpdateSummary {
     param(
         [Parameter(Mandatory)]
@@ -649,13 +772,34 @@ function Get-UpdateSummary {
     $Rows
 }
 
+<#
+.SYNOPSIS
+Formats recorded updates as one summary line per VM.
+
+.DESCRIPTION
+Includes only Updated results with a recorded version, ordered by VM and
+application and grouped by VM. Each line lists application names
+and previous-to-current version changes, with changelog URLs when available.
+Returns no output when no results qualify. Does not write headings or fallback
+messages to the host.
+
+.PARAMETER Summary
+Update result objects returned by Invoke-VmUpdate or Get-UpdateSummary.
+Uses VM, Application, Status, Version, PreviousVersion, and optional Changelog
+properties. Accepts an empty collection and defaults to an empty array.
+
+.OUTPUTS
+System.String
+One line per VM in the form VM | application (previous -> current) [changelog].
+Multiple applications are comma-separated; the changelog is optional.
+
+.EXAMPLE
+Format-UpdateSummary -Summary $summary
+#>
 function Format-UpdateSummary {
     param(
         [AllowEmptyCollection()]
-        [object[]]$Summary = @(),
-
-        [ValidateRange(60, 300)]
-        [int]$Width = 120
+        [object[]]$Summary = @()
     )
 
     $Updated = $Summary | Where-Object { $_.Status -eq 'Updated' -and $_.Version }
@@ -667,6 +811,48 @@ function Format-UpdateSummary {
         }
         "$($Group.Name) | " + ($Packages -join ', ')
     }
+}
+
+<#
+.SYNOPSIS
+Prints the final VM update summary.
+
+.DESCRIPTION
+Writes an Update Summary heading and surrounding blank lines to the host.
+Returns the lines from Format-UpdateSummary, grouped by VM, for updated packages
+and applications with recorded versions. When no such updates exist, returns an
+error reminder if any result failed, or an all-up-to-date message otherwise.
+
+.PARAMETER Summary
+Update result objects returned by Invoke-VmUpdate or Get-UpdateSummary.
+Accepts an empty collection and defaults to an empty array.
+
+.OUTPUTS
+System.String
+Formatted update lines or a fallback status message.
+
+.EXAMPLE
+Write-UpdateSummary -Summary $summary
+#>
+function Write-UpdateSummary {
+    param(
+        [AllowEmptyCollection()]
+        [object[]]$Summary = @()
+    )
+
+    Write-Host ""
+    Write-Header 'Update Summary'
+    $updates = @(Format-UpdateSummary -Summary $Summary)
+    if ($updates.Count -gt 0) {
+        $updates
+    }
+    elseif ($Summary.Status -contains 'Failed') {
+        'No updates recorded. Check the errors above.'
+    }
+    else {
+        'All VMs up-to-date.'
+    }
+    Write-Host ""
 }
 
 <#

@@ -43,11 +43,12 @@ The repository has two main workflows:
 Each immediate subdirectory of `vms/` represents a target VM. Every VM has an
 `update.ps1` script, including machines that only need APT updates.
 
-The shared default DNS domain is configured in `vms/config.psd1`:
+The shared default DNS domain and SSH user are configured in `vms/config.psd1`:
 
 ```powershell
 @{
 	Domain = 'home.arpa'
+	User = 'root'
 }
 ```
 
@@ -55,6 +56,9 @@ This is an example domain; set it to the domain used by your VMs. The automation
 appends it to folder names without a dot, so `vms/evcc/` targets `evcc.home.arpa`
 with the example configuration. Folder names containing a dot are treated as
 full hostnames and left unchanged. VMs are processed in folder-name order.
+
+Both setup and update use the configured `User`. The scripts require root
+privileges and do not automatically elevate with `sudo`.
 
 To add an APT-only VM, create `vms/<vm-name>/update.ps1` containing:
 
@@ -73,8 +77,8 @@ Run:
 This script:
 
 1. Imports the local `Automation` module.
-2. Reads the domain from `vms/config.psd1` and discovers VM folders under `vms/`.
-3. Connects to each VM as `root` with SSH.
+2. Reads the domain and user from `vms/config.psd1` and discovers VM folders under `vms/`.
+3. Connects to each VM with SSH as the configured user.
 4. Uploads `scripts/pwsh-remoting.sh` to a temporary path on the remote host.
 5. Executes the script with `bash`.
 6. Removes the temporary remote script.
@@ -104,8 +108,8 @@ Run:
 This script:
 
 1. Imports the local `Automation` module.
-2. Reads the domain from `vms/config.psd1` and discovers VM folders under `vms/`.
-3. Opens a PowerShell remoting session to each VM as `root`.
+2. Reads the domain and user from `vms/config.psd1` and discovers VM folders under `vms/`.
+3. Opens a PowerShell remoting session to each VM as the configured user.
 4. Runs that VM's `vms/<vm-name>/update.ps1` script remotely.
 5. The VM script calls `Update-Apt` first, followed by any service-specific updates.
 6. Prints a final `Update Summary` section with one line per VM with recorded updates.
@@ -189,7 +193,11 @@ Prints a dashed heading for the current operation.
 ### `Get-VmList`
 
 Reads immediate child directories in name order and appends the configured domain
-to short folder names. Full hostnames are returned unchanged.
+to short folder names. Returns one object per VM:
+
+- `Name`: original folder name.
+- `HostName`: hostname used for remote connections.
+- `UpdateScript`: absolute path to that folder's `update.ps1` script.
 
 Parameters:
 
