@@ -1,3 +1,5 @@
+Update-Apt
+
 $Repo = "keycloak/keycloak"
 $AssetName = "^keycloak-[0-9]+(\.[0-9]+)*\.tar\.gz$"
 $BaseDir = "/opt/keycloak"

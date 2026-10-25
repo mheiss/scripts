@@ -1,3 +1,5 @@
+Update-Apt
+
 $Repo = "mheiss/dyndns"
 $AssetName = "dyndns-app"
 $BaseDir = "/opt/dyndns"

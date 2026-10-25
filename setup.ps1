@@ -1,11 +1,12 @@
-Import-Module ./Automation -Force
+Import-Module "$PSScriptRoot/automation" -Force
+$config = Import-PowerShellDataFile "$PSScriptRoot/vms/config.psd1"
 
 
 ##-----------------
 # Configure all VMs
 ##------------------
 $user = "root"
-foreach ($vm in Get-VmList -Path './vm.txt') {
+foreach ($vm in Get-VmList -Path "$PSScriptRoot/vms" -Domain $config.Domain) {
     Write-Header "Configuring $vm"
-    Invoke-SshScript -VmName $vm -User $user -LocalPath ".\scripts\pwsh-remoting.sh"
+    Invoke-SshScript -VmName $vm -User $user -LocalPath "$PSScriptRoot/scripts/pwsh-remoting.sh"
 }

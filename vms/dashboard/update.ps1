@@ -1,3 +1,5 @@
+Update-Apt
+
 $Repo = "mheiss/dashboard"
 $AssetName = "dashboard"
 $BaseDir = "/opt/dashboard"

@@ -1,3 +1,5 @@
+Update-Apt
+
 $Repo = "traefik/traefik"
 $AssetName = "linux_amd64"
 $BaseDir = "/opt/traefik"

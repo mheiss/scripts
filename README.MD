@@ -40,21 +40,27 @@ The repository has two main workflows:
 
 ## VM Inventory
 
-Target machines and the default DNS domain are configured together in `vm.txt`.
+Each immediate subdirectory of `vms/` represents a target VM. Every VM has an
+`update.ps1` script, including machines that only need APT updates.
 
-Use a `domain=<name>` entry for the default domain, followed by one VM name or full hostname per line:
+The shared default DNS domain is configured in `vms/config.psd1`:
 
-```text
-domain=heiss.lan
-
-evcc
-influx
-traefik
+```powershell
+@{
+	Domain = 'home.arpa'
+}
 ```
 
-The automation appends the configured domain to VM entries that do not already contain a dot. With `domain=heiss.lan`, `evcc` becomes `evcc.heiss.lan`.
+This is an example domain; set it to the domain used by your VMs. The automation
+appends it to folder names without a dot, so `vms/evcc/` targets `evcc.home.arpa`
+with the example configuration. Folder names containing a dot are treated as
+full hostnames and left unchanged. VMs are processed in folder-name order.
 
-Blank lines and lines starting with `#` are ignored. VM entries that already contain a dot are treated as full hostnames and are not changed.
+To add an APT-only VM, create `vms/<vm-name>/update.ps1` containing:
+
+```powershell
+Update-Apt
+```
 
 ## Initial VM Setup
 
@@ -67,7 +73,7 @@ Run:
 This script:
 
 1. Imports the local `Automation` module.
-2. Reads the domain and VMs from `vm.txt`.
+2. Reads the domain from `vms/config.psd1` and discovers VM folders under `vms/`.
 3. Connects to each VM as `root` with SSH.
 4. Uploads `scripts/pwsh-remoting.sh` to a temporary path on the remote host.
 5. Executes the script with `bash`.
@@ -98,12 +104,14 @@ Run:
 This script:
 
 1. Imports the local `Automation` module.
-2. Reads the domain and VMs from `vm.txt`.
+2. Reads the domain from `vms/config.psd1` and discovers VM folders under `vms/`.
 3. Opens a PowerShell remoting session to each VM as `root`.
-4. Runs `scripts/apt-get-update.ps1` on each VM.
-5. Looks for a custom update script at `scripts/<vm-short-name>/update.ps1`.
-6. Runs that custom script when it exists.
-7. Prints a final `Update Summary` section with one line per VM.
+4. Runs that VM's `vms/<vm-name>/update.ps1` script remotely.
+5. The VM script calls `Update-Apt` first, followed by any service-specific updates.
+6. Prints a final `Update Summary` section with one line per VM with recorded updates.
+
+A missing VM update script is reported as a failure. If APT fails, the VM script
+stops before its service updates; other VMs are still processed.
 
 ```text
 -----------
@@ -118,7 +126,7 @@ VMs without changes are omitted. If no changes are recorded, the section shows
 from the existing installation symlink, and GitHub release links are included
 when available. Detailed progress and errors still appear during updates.
 
-The shared package update script runs:
+The shared `Update-Apt` helper runs these commands and checks their exit codes:
 
 ```powershell
 bash -c "export LC_ALL=C DEBIAN_FRONTEND=noninteractive && apt-get update -y"
@@ -127,7 +135,8 @@ bash -c "export LC_ALL=C DEBIAN_FRONTEND=noninteractive && apt-get upgrade -y"
 
 ## Service-Specific Updates
 
-Custom service updates are stored under `scripts/<vm-name>/update.ps1`. The top-level `update.ps1` runs them only when the folder name matches the short VM name from `vm.txt`.
+Service updates are stored under `vms/<vm-name>/update.ps1`, after the
+`Update-Apt` call. The top-level `update.ps1` runs one script per VM folder.
 
 These scripts are thin service definitions around `Update-App`. Each one describes:
 
@@ -141,17 +150,19 @@ These scripts are thin service definitions around `Update-App`. Each one describ
 
 | Folder                 | GitHub repo                 | Asset pattern           | Install base        | Service        | Symlink              |
 | ---------------------- | --------------------------- | ----------------------- | ------------------- | -------------- | -------------------- |
-| `scripts/dashboard`    | `AlexxIT/go2rtc`            | `linux_amd64`           | `/opt/go2rtc`       | `go2rtc`       | `/sbin/go2rtc`       |
-| `scripts/dyndns`       | `mheiss/dyndns`             | `dyndns-app`            | `/opt/dyndns`       | `dyndns`       | `/sbin/dyndns`       |
-| `scripts/oauth2-proxy` | `oauth2-proxy/oauth2-proxy` | `linux-amd64\.tar\.gz$` | `/opt/oauth2-proxy` | `oauth2-proxy` | `/sbin/oauth2-proxy` |
-| `scripts/traefik`      | `traefik/traefik`           | `linux_amd64`           | `/opt/traefik`      | `traefik`      | `/sbin/traefik`      |
-| `scripts/zwave`        | `zwave-js/zwave-js-ui`      | `linux\.zip$`           | `/opt/zwave-js`     | `zwave-js`     | `/sbin/zwave-js`     |
+| `vms/dashboard`    | `AlexxIT/go2rtc`            | `linux_amd64`           | `/opt/go2rtc`       | `go2rtc`       | `/sbin/go2rtc`       |
+| `vms/dyndns`       | `mheiss/dyndns`             | `dyndns-app`            | `/opt/dyndns`       | `dyndns`       | `/sbin/dyndns`       |
+| `vms/oauth2-proxy` | `oauth2-proxy/oauth2-proxy` | `linux-amd64\.tar\.gz$` | `/opt/oauth2-proxy` | `oauth2-proxy` | `/sbin/oauth2-proxy` |
+| `vms/traefik`      | `traefik/traefik`           | `linux_amd64`           | `/opt/traefik`      | `traefik`      | `/sbin/traefik`      |
+| `vms/zwave`        | `zwave-js/zwave-js-ui`      | `linux\.zip$`           | `/opt/zwave-js`     | `zwave-js`     | `/sbin/zwave-js`     |
 
 ## Adding a New GitHub Release-Based Application Update
 
-For any application that publishes installable assets through GitHub Releases, create `scripts/<vm-short-name>/update.ps1` with this pattern:
+For any application that publishes installable assets through GitHub Releases, create `vms/<vm-name>/update.ps1` with this pattern:
 
 ```powershell
+Update-Apt
+
 $Repo = "owner/repository"
 $AssetName = "asset-name-or-regex"
 $BaseDir = "/opt/app-name"
@@ -177,11 +188,18 @@ Prints a dashed heading for the current operation.
 
 ### `Get-VmList`
 
-Reads the VM list file, trims whitespace, ignores blank/comment lines, reads the `domain=<name>` entry, and appends the configured domain to short hostnames.
+Reads immediate child directories in name order and appends the configured domain
+to short folder names. Full hostnames are returned unchanged.
 
 Parameters:
 
-- `Path`: path to the VM list file.
+- `Path`: path to the VM folder.
+- `Domain`: default DNS domain from `vms/config.psd1`.
+
+### `Update-Apt`
+
+Runs noninteractive APT package-list refresh and package upgrades. Throws on a
+nonzero exit code. Every VM update script calls this helper before service updates.
 
 ### `New-VmSession`
 

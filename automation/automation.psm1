@@ -32,56 +32,56 @@ function Write-Header {
 
 <#
 .SYNOPSIS
-Reads VM hostnames and the default domain from an inventory file.
+Reads VM hostnames from directories in the VM folder.
 
 .DESCRIPTION
-Ignores blank lines and comments, then appends the domain from the domain=<name>
-entry to VM names without a dot. Returns names containing a dot unchanged.
-Throws if the file is missing or does not define a default domain.
+Appends the supplied domain to directory names without a dot. Returns names
+containing a dot unchanged. Throws if the VM folder does not exist.
 #>
 function Get-VmList {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [string]$Path
+        [string]$Path,
+
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string]$Domain
     )
-    if (-not (Test-Path $Path)) {
-        throw "VM list file not found: $Path"
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+        throw "VM folder not found: $Path"
     }
 
-    $entries = Get-Content $Path | 
-    ForEach-Object { 
-        $_.Trim() 
-    } |
-    Where-Object {
-        $_ -ne "" -and
-        -not $_.StartsWith("#")
-    }
-
-    $domain = $entries |
-    Where-Object {
-        $_ -match '^domain\s*='
-    } |
+    Get-ChildItem -LiteralPath $Path -Directory -ErrorAction Stop |
+    Sort-Object Name |
     ForEach-Object {
-        ($_ -split '=', 2)[1].Trim()
-    } |
-    Select-Object -First 1
-
-    if (-not $domain) {
-        throw "VM list file does not contain a domain=<name> entry: $Path"
-    }
-
-    $entries |
-    Where-Object {
-        $_ -notmatch '^domain\s*='
-    } |
-    ForEach-Object { 
-        if ($_.Contains(".")) { 
-            $_ 
+        if ($_.Name.Contains(".")) {
+            $_.Name
         }
-        else { 
-            "$_.$Domain" 
-        } 
+        else {
+            "$($_.Name).$Domain"
+        }
+    }
+}
+
+<#
+.SYNOPSIS
+Updates installed Debian packages.
+
+.DESCRIPTION
+Runs apt-get update and upgrade all installed packages.
+Throws if either command fails.
+#>
+function Update-Apt {
+    Write-Host "Updating installed packages."
+
+    bash -c "export LC_ALL=C DEBIAN_FRONTEND=noninteractive && apt-get update -y"
+    if ($LASTEXITCODE -ne 0) {
+        throw "apt-get update failed with exit code $LASTEXITCODE."
+    }
+    bash -c "export LC_ALL=C DEBIAN_FRONTEND=noninteractive && apt-get upgrade -y"
+    if ($LASTEXITCODE -ne 0) {
+        throw "apt-get upgrade failed with exit code $LASTEXITCODE."
     }
 }
 
@@ -106,7 +106,7 @@ function New-VmSession {
 
     try {
         $session = New-PSSession -HostName $VmName -UserName $User
-        Import-FunctionsToRemote -Session $session -Commands @("Update-App")
+        Import-FunctionsToRemote -Session $session -Commands @("Update-App", "Update-Apt")
         return $session;
     }
     catch {
@@ -521,7 +521,7 @@ function Update-App {
 Loads the local automation functions into an existing remote session.
 
 .DESCRIPTION
-Reads ./Automation/Automation.psm1 relative to the current local directory and
+Reads automation.psm1 from the local module directory and
 evaluates its contents in the supplied PowerShell session. Loads the whole
 module's function definitions; the required Commands argument is currently not
 used to filter which functions are imported.
@@ -535,7 +535,7 @@ function Import-FunctionsToRemote {
         [string[]]$Commands
     )
 
-    $definition = Get-Content "./Automation/Automation.psm1" -Raw 
+    $definition = Get-Content "$PSScriptRoot/automation.psm1" -Raw
     Invoke-Command -Session $Session -ArgumentList $definition -ScriptBlock { 
         param($def) 
         Invoke-Expression $def 
@@ -572,6 +572,10 @@ function Get-UpdateSummary {
             [string]$Record
         }
         foreach ($Line in ($Text -split '\r?\n')) {
+            if ($Type -eq 'Custom' -and $Line -eq 'Updating installed packages') {
+                $Current = [pscustomobject]@{ VM = $VmName; Type = 'Apt'; Application = 'apt-get'; Status = 'Unknown'; Version = ''; Details = '' }
+                $Rows.Add($Current)
+            }
             if ($Type -eq 'Custom' -and $Line -match '^Checking for updates for (.+)\.\.\.$') {
                 $Current = [pscustomobject]@{ VM = $VmName; Type = $Type; Application = $Matches[1]; Status = 'Unknown'; Version = ''; PreviousVersion = 'not installed'; Changelog = ''; Details = '' }
                 $Rows.Add($Current)
@@ -585,7 +589,7 @@ function Get-UpdateSummary {
                 $Current.Status = 'Failed'
                 $Current.Details += "$Line; "
             }
-            elseif ($Type -eq 'Apt') {
+            elseif ($Current -and $Current.Type -eq 'Apt') {
                 if ($Line -match '^(\d+) upgraded, (\d+) newly installed, (\d+) to remove and (\d+) not upgraded\.') {
                     if ($Current.Status -notin @('Failed', 'Warning')) {
                         $Current.Status = if ([int]$Matches[1] + [int]$Matches[2] + [int]$Matches[3] -gt 0) { 'Updated' } else { 'Up to date' }
@@ -594,7 +598,7 @@ function Get-UpdateSummary {
                 }
                 elseif ($Line -match '^Unpacking (\S+) \(([^)]+)\)(?: over \(([^)]+)\))?') {
                     $Rows.Add([pscustomobject]@{
-                        VM = $VmName; Type = $Type; Application = $Matches[1]; Status = 'Updated'
+                        VM = $VmName; Type = 'Apt'; Application = $Matches[1]; Status = 'Updated'
                         Version = $Matches[2]; PreviousVersion = $(if ($Matches[3]) { $Matches[3] } else { 'not installed' })
                         Changelog = ''; Details = ''
                     })

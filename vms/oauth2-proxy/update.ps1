@@ -1,3 +1,5 @@
+Update-Apt
+
 $Repo = "oauth2-proxy/oauth2-proxy"
 $AssetName = "linux-amd64\.tar\.gz$"
 $BaseDir = "/opt/oauth2-proxy"

@@ -1,3 +1,5 @@
+Update-Apt
+
 $Repo = "zwave-js/zwave-js-ui"
 $AssetName = "linux\.zip$"
 $BaseDir = "/opt/zwave-js"
