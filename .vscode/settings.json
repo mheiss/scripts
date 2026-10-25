@@ -5,6 +5,7 @@
         "dyndns",
         "evcc",
         "grafana",
+        "LASTEXITCODE",
         "linux",
         "mheiss",
         "noninteractive",
@@ -12,7 +13,9 @@
         "pinfo",
         "postgresql",
         "pscustomobject",
+        "readlink",
         "Remotingtools",
+        "rethrowing",
         "sshs",
         "traefik",
         "zwave"
