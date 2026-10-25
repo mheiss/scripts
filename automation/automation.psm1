@@ -80,7 +80,7 @@ Runs apt-get update and upgrade all installed packages.
 Throws if either command fails.
 #>
 function Update-Apt {
-    Write-Host "Updating installed packages."
+    Write-Host "Updating installed packages"
 
     bash -c "export LC_ALL=C DEBIAN_FRONTEND=noninteractive && apt-get update -y"
     if ($LASTEXITCODE -ne 0) {
