@@ -155,7 +155,15 @@ function Invoke-PwshCommand {
     try {
         Invoke-Command -Session $session -ArgumentList $cmds -ScriptBlock { 
             param($cmds) 
-            Invoke-Expression ($cmds -join "`n") 
+            Invoke-Expression ($cmds -join "`n") 6>&1 |
+            ForEach-Object {
+                if ($_ -is [System.Management.Automation.InformationRecord]) {
+                    [string]$_.MessageData
+                }
+                else {
+                    $_
+                }
+            }
         } 
     }
     finally {
@@ -265,7 +273,7 @@ Waits for an HTTP resource to return a successful status code.
 Returns true on HTTP 2xx, or warns and returns false when the timeout expires.
 Redirects are not followed so a login page cannot indicate application readiness.
 #>
-function Wait-For-Resource {
+function Wait-Resource {
     param(
         [Parameter(Mandatory)]
         [ValidateScript({ $_.IsAbsoluteUri -and $_.Scheme -in @('http', 'https') })]
@@ -424,6 +432,13 @@ function Update-App {
 
     Write-Host "Update available: $Version."
     Write-Host "Release notes: $($Response.html_url)"
+    if (Test-Path $SymlinkPath) {
+        $InstalledPath = bash -c "readlink -f '$SymlinkPath'"
+        if ($LASTEXITCODE -eq 0 -and $InstalledPath) {
+            $InstalledVersion = [System.IO.Path]::GetRelativePath($BaseDir, [string]$InstalledPath).Split('/')[0]
+            Write-Host "Installed version: $InstalledVersion"
+        }
+    }
     
     # Select the desired asset
     $Asset = $Response.assets | Where-Object { $_.name -match $AssetName }
@@ -524,6 +539,129 @@ function Import-FunctionsToRemote {
     Invoke-Command -Session $Session -ArgumentList $definition -ScriptBlock { 
         param($def) 
         Invoke-Expression $def 
+    }
+}
+
+function Get-UpdateSummary {
+    param(
+        [Parameter(Mandatory)]
+        [string]$VmName,
+
+        [Parameter(Mandatory)]
+        [ValidateSet('Apt', 'Custom')]
+        [string]$Type,
+
+        [AllowEmptyCollection()]
+        [object[]]$Output = @(),
+
+        [switch]$Failed
+    )
+
+    $Rows = [System.Collections.Generic.List[object]]::new()
+    $Current = $null
+    if ($Type -eq 'Apt') {
+        $Current = [pscustomobject]@{ VM = $VmName; Type = $Type; Application = 'apt-get'; Status = 'Unknown'; Version = ''; Details = '' }
+        $Rows.Add($Current)
+    }
+
+    foreach ($Record in $Output) {
+        $Text = if ($Record -is [System.Management.Automation.InformationRecord]) {
+            [string]$Record.MessageData
+        }
+        else {
+            [string]$Record
+        }
+        foreach ($Line in ($Text -split '\r?\n')) {
+            if ($Type -eq 'Custom' -and $Line -match '^Checking for updates for (.+)\.\.\.$') {
+                $Current = [pscustomobject]@{ VM = $VmName; Type = $Type; Application = $Matches[1]; Status = 'Unknown'; Version = ''; PreviousVersion = 'not installed'; Changelog = ''; Details = '' }
+                $Rows.Add($Current)
+            }
+
+            if ($Record -is [System.Management.Automation.ErrorRecord] -or $Line -match '^(E:|Asset .+ not found!|Downloading .+ failed!)') {
+                if (-not $Current) {
+                    $Current = [pscustomobject]@{ VM = $VmName; Type = $Type; Application = 'Custom script'; Status = 'Unknown'; Version = ''; Details = '' }
+                    $Rows.Add($Current)
+                }
+                $Current.Status = 'Failed'
+                $Current.Details += "$Line; "
+            }
+            elseif ($Type -eq 'Apt') {
+                if ($Line -match '^(\d+) upgraded, (\d+) newly installed, (\d+) to remove and (\d+) not upgraded\.') {
+                    if ($Current.Status -notin @('Failed', 'Warning')) {
+                        $Current.Status = if ([int]$Matches[1] + [int]$Matches[2] + [int]$Matches[3] -gt 0) { 'Updated' } else { 'Up to date' }
+                    }
+                    $Current.Details += "$Line; "
+                }
+                elseif ($Line -match '^Unpacking (\S+) \(([^)]+)\)(?: over \(([^)]+)\))?') {
+                    $Rows.Add([pscustomobject]@{
+                        VM = $VmName; Type = $Type; Application = $Matches[1]; Status = 'Updated'
+                        Version = $Matches[2]; PreviousVersion = $(if ($Matches[3]) { $Matches[3] } else { 'not installed' })
+                        Changelog = ''; Details = ''
+                    })
+                }
+            }
+            elseif ($Current) {
+                if ($Line -match '^Latest release (.+) is already installed\.') {
+                    $Current.Version = $Matches[1]
+                    if ($Current.Status -notin @('Failed', 'Warning')) { $Current.Status = 'Up to date' }
+                }
+                elseif ($Line -match '^Update available: (.+)\.$') {
+                    $Current.Version = $Matches[1]
+                }
+                elseif ($Line -match '^Installed version: (.+)$') {
+                    $Current.PreviousVersion = $Matches[1]
+                }
+                elseif ($Line -match '^Release notes: (https://\S+)$') {
+                    $Current.Changelog = $Matches[1]
+                }
+                elseif ($Line -match '^Restarting service: (.+)$') {
+                    $Current.Details += "Service: $($Matches[1]); "
+                }
+                elseif ($Line -match '^\s*Active:\s+active \(running\)' -and $Current.Status -notin @('Failed', 'Warning')) {
+                    $Current.Status = 'Updated'
+                }
+                elseif ($Line -match '^\s*Active:\s+(failed|inactive)') {
+                    $Current.Status = 'Failed'
+                    $Current.Details += "$($Line.Trim()); "
+                }
+            }
+
+            if ($Record -is [System.Management.Automation.WarningRecord] -or $Line -match '^W:') {
+                if (-not $Current) {
+                    $Current = [pscustomobject]@{ VM = $VmName; Type = $Type; Application = 'Custom script'; Status = 'Unknown'; Version = ''; Details = '' }
+                    $Rows.Add($Current)
+                }
+                if ($Current.Status -ne 'Failed') { $Current.Status = 'Warning' }
+                $Current.Details += "$Line; "
+            }
+        }
+    }
+
+    if ($Rows.Count -eq 0) {
+        $Current = [pscustomobject]@{ VM = $VmName; Type = $Type; Application = 'Custom script'; Status = 'Unknown'; Version = ''; Details = 'No recognized update result.' }
+        $Rows.Add($Current)
+    }
+    if ($Failed) { $Current.Status = 'Failed' }
+    $Rows
+}
+
+function Format-UpdateSummary {
+    param(
+        [AllowEmptyCollection()]
+        [object[]]$Summary = @(),
+
+        [ValidateRange(60, 300)]
+        [int]$Width = 120
+    )
+
+    $Updated = $Summary | Where-Object { $_.Status -eq 'Updated' -and $_.Version }
+    foreach ($Group in ($Updated | Sort-Object VM, Application | Group-Object VM)) {
+        $Packages = foreach ($Row in $Group.Group) {
+            $Package = "$($Row.Application) ($($Row.PreviousVersion) -> $($Row.Version))"
+            if ($Row.Changelog) { $Package += " [$($Row.Changelog)]" }
+            $Package
+        }
+        "$($Group.Name) | " + ($Packages -join ', ')
     }
 }
 

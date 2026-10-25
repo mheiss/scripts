@@ -6,7 +6,7 @@ $SymlinkPath = "/opt/dashboard/latest"
 $FullySecretFile = "/etc/dashboard/fully.env"
 Update-App -Repo $Repo -AssetName $AssetName -BaseDir $BaseDir -ServiceName $ServiceName -SymlinkPath $SymlinkPath
 
-if (Wait-For-Resource -Uri "http://localhost:8082") {
+if (Wait-Resource -Uri "http://localhost:8082") {
 	Update-FullyDisplay -SecretFile $FullySecretFile
 }
 

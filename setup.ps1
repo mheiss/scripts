@@ -1,4 +1,5 @@
-Import-Module ./Automation
+Import-Module ./Automation -Force
+
 
 ##-----------------
 # Configure all VMs

@@ -103,12 +103,26 @@ This script:
 4. Runs `scripts/apt-get-update.ps1` on each VM.
 5. Looks for a custom update script at `scripts/<vm-short-name>/update.ps1`.
 6. Runs that custom script when it exists.
+7. Prints a final `Update Summary` section with one line per VM.
+
+```text
+-----------
+Update Summary
+-----------
+dashboard.home.arpa | curl (7.0 -> 8.0), mheiss/dashboard (1.0 -> 2.0) [https://github.com/mheiss/dashboard/releases/tag/v2.0]
+```
+
+VMs without changes are omitted. If no changes are recorded, the section shows
+`All VMs up-to-date.`, or an error reminder if an update failed. Newly installed packages show
+`not installed` as their previous version. Custom application versions are read
+from the existing installation symlink, and GitHub release links are included
+when available. Detailed progress and errors still appear during updates.
 
 The shared package update script runs:
 
 ```powershell
-bash -c "export DEBIAN_FRONTEND=noninteractive && apt-get update -y"
-bash -c "export DEBIAN_FRONTEND=noninteractive && apt-get upgrade -y"
+bash -c "export LC_ALL=C DEBIAN_FRONTEND=noninteractive && apt-get update -y"
+bash -c "export LC_ALL=C DEBIAN_FRONTEND=noninteractive && apt-get upgrade -y"
 ```
 
 ## Service-Specific Updates
@@ -194,7 +208,7 @@ When `-FilePath` is used, the file is read locally, sent to the remote session, 
 
 Uploads a local script to a remote host with `scp`, runs it with `ssh`, then deletes the uploaded file. This is used by `setup.ps1` before PowerShell remoting is available.
 
-### `Wait-For-Resource`
+### `Wait-Resource`
 
 Polls an HTTP or HTTPS resource until it returns HTTP 2xx. Returns `$true` on
 success, or warns and returns `$false` on timeout. Redirects are not followed,
@@ -210,7 +224,7 @@ Parameters:
 The dashboard update uses this helper before refreshing Fully:
 
 ```powershell
-if (Wait-For-Resource -Uri "http://localhost:8082") {
+if (Wait-Resource -Uri "http://localhost:8082") {
 	Update-FullyDisplay -SecretFile "/etc/dashboard/fully.env"
 }
 ```
